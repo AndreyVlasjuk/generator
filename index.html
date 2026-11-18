@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Генератор</title>
+<style>
+:root{--bg:#0f1418;--card:#1a2128;--fg:#e8edf1;--mut:#8a98a5;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--acc:#58a6ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px system-ui,sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--card);position:sticky;top:0;z-index:2}
+h1{font-size:20px;margin:0}.pill{padding:4px 10px;border-radius:99px;font-weight:600;font-size:14px;background:#30363d}
+main{padding:12px 16px 120px;max-width:1100px;margin:auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
+.c{background:var(--card);border-radius:10px;padding:12px}.l{color:var(--mut);font-size:13px}
+.v{font-size:26px;font-weight:700;margin-top:4px}.u{font-size:14px;color:var(--mut);font-weight:400}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden;margin-bottom:12px}
+td,th{padding:8px 10px;text-align:right}th:first-child,td:first-child{text-align:left;color:var(--mut)}
+th{font-size:13px;color:var(--mut);font-weight:500}tr+tr td{border-top:1px solid #26303a}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+button{flex:1;min-width:120px;padding:16px;font-size:18px;font-weight:700;border:0;border-radius:10px;color:#fff;cursor:pointer;background:#30363d}
+.b-auto{background:#238636}.b-stop{background:#b62324}
+.banner{display:none;color:#fff;padding:10px 16px;font-weight:600}
+#alerts div{background:#3d1f1f;border-left:4px solid var(--bad);padding:8px 12px;border-radius:6px;margin-bottom:6px}
+#alerts div.w{background:#3a2f12;border-left-color:var(--warn)}
+h2{font-size:17px;margin:20px 0 8px}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+.row input{padding:8px;border-radius:8px;border:1px solid #30363d;background:var(--card);color:var(--fg);font-size:15px}
+canvas{width:100%;height:220px;background:var(--card);border-radius:10px;display:block}
+.ev{background:var(--card);border-radius:10px;max-height:360px;overflow:auto}
+.ev div{padding:7px 12px;border-top:1px solid #26303a;font-size:14px}.ev div:first-child{border-top:0}
+.ev .t{color:var(--mut);margin-right:8px;font-variant-numeric:tabular-nums}
+.lg{display:flex;gap:14px;font-size:12px;color:var(--mut);margin-top:6px;flex-wrap:wrap}.lg i{display:inline-block;width:12px;height:8px;margin-right:4px;border-radius:2px}
+#login{max-width:420px;margin:40px auto;padding:0 16px}#login label{display:block;color:var(--mut);font-size:13px;margin:12px 0 4px}
+#login input{width:100%;padding:12px;font-size:16px;border-radius:8px;border:1px solid #30363d;background:var(--card);color:var(--fg)}
+small{color:var(--mut)}a{color:var(--acc)}
+</style></head><body>
+
+<div id="login" hidden>
+ <h1>Генератор — вхід</h1>
+ <p><small>Дані входу зберігаються лише на цьому пристрої.</small></p>
+ <label>Адреса MQTT-сервера (EMQX)</label><input id="lh" placeholder="xxxx.ala.eu-central-1.emqxsl.com" autocapitalize="off">
+ <label>Порт WebSocket over TLS</label><input id="lo" value="8084" inputmode="numeric">
+ <label>Логін</label><input id="lu" placeholder="gen-viewer" autocapitalize="off" autocomplete="username">
+ <label>Пароль</label><input id="lp" type="password" autocomplete="current-password">
+ <label>Префікс топіків</label><input id="lx" value="generator" autocapitalize="off">
+ <div class="btns"><button class="b-auto" id="lgo">Увійти</button></div>
+ <p id="lerr" style="color:var(--bad)"></p>
+</div>
+
+<div id="app" hidden>
+<header><h1>Генератор</h1><span><span id="link" class="pill">…</span> <span id="mode" class="pill">—</span></span></header>
+<div id="banner" class="banner" style="background:var(--bad)"></div>
+<main>
+<div id="alerts"></div>
+<div class="grid">
+ <div class="c"><div class="l">Навантаження</div><div class="v"><span id="kw">—</span> <span class="u">кВт</span></div><div class="l" id="loadp"></div></div>
+ <div class="c"><div class="l">Мережа</div><div class="v" id="mains">—</div><div class="l" id="mainsv"></div></div>
+ <div class="c"><div class="l">Частота</div><div class="v"><span id="hz">—</span> <span class="u">Гц</span></div></div>
+ <div class="c"><div class="l">Оберти</div><div class="v"><span id="rpm">—</span> <span class="u">об/хв</span></div></div>
+ <div class="c"><div class="l">Тиск масла</div><div class="v"><span id="oil">—</span> <span class="u">бар</span></div></div>
+ <div class="c"><div class="l">Температура ОР</div><div class="v"><span id="tmp">—</span> <span class="u">°C</span></div></div>
+ <div class="c"><div class="l">Акумулятор</div><div class="v"><span id="bat">—</span> <span class="u">В</span></div></div>
+ <div class="c"><div class="l">Мотогодини</div><div class="v"><span id="hrs">—</span></div><div class="l" id="st"></div></div>
+</div>
+<table>
+ <tr><th></th><th>L1</th><th>L2</th><th>L3</th></tr>
+ <tr><td>Напруга Ф-N, В</td><td id="v0"></td><td id="v1"></td><td id="v2"></td></tr>
+ <tr><td>Струм, А</td><td id="i0"></td><td id="i1"></td><td id="i2"></td></tr>
+ <tr><td>Потужність, кВт</td><td id="p0"></td><td id="p1"></td><td id="p2"></td></tr>
+ <tr><td>cos φ</td><td id="f0"></td><td id="f1"></td><td id="f2"></td></tr>
+</table>
+<div class="btns">
+ <button class="b-auto" onclick="cmd('auto','Перевести генератор в режим АВТО?')">АВТО</button>
+ <button class="b-stop" onclick="cmd('stop','ЗУПИНИТИ генератор? Якщо мережі немає — навантаження залишиться без живлення.')">СТОП</button>
+</div>
+<h2>Графік за добу</h2>
+<div class="row"><input type="date" id="day"></div>
+<canvas id="ch"></canvas>
+<div class="lg"><span><i style="background:#58a6ff"></i>кВт</span><span><i style="background:#3fb950;opacity:.35"></i>генератор працює</span><span><i style="background:#f85149;opacity:.35"></i>немає мережі</span></div>
+<h2>Журнал подій</h2>
+<div class="ev" id="ev"></div>
+<p><small><a href="#" id="logout">Вийти</a> · <span id="age"></span></small></p>
+</main>
+</div>
+
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const f=(v,d=0)=>v==null?'—':Number(v).toFixed(d);
+const pad=n=>String(n).padStart(2,'0');
+const MODES={0:['СТОП','#b62324'],1:['АВТО','#238636']};
+let client=null,P='generator',lastStatus=0,boardOnline=null,events=[];
+const pending={};   // request id -> {chunks:{}, end:null, resolve, reject}
+
+function cfgLoad(){try{return JSON.parse(localStorage.getItem('gen_cfg')||'null')}catch(e){return null}}
+function cfgSave(c){try{localStorage.setItem('gen_cfg',JSON.stringify(c))}catch(e){}}
+
+function showLogin(err){$('app').hidden=true;$('login').hidden=false;$('lerr').textContent=err||'';
+ const c=cfgLoad()||{};$('lh').value=c.host||'t7f20972.ala.eu-central-1.emqxsl.com';$('lu').value=c.user||'';$('lx').value=c.prefix||'generator';$('lo').value=c.port||8084;}
+$('lgo').onclick=()=>{const c={host:$('lh').value.trim().replace(/^.*:\/\//,'').replace(/[:\/].*$/,''),user:$('lu').value.trim(),pass:$('lp').value,prefix:$('lx').value.trim()||'generator',port:parseInt($('lo').value,10)||8084};
+ if(!c.host||!c.user||!c.pass){$('lerr').textContent='Заповніть усі поля';return;}cfgSave(c);start(c);};
+$('logout').onclick=e=>{e.preventDefault();try{localStorage.removeItem('gen_cfg')}catch(x){};if(client)client.end(true);showLogin();};
+
+function start(c){
+ P=c.prefix;$('login').hidden=true;$('app').hidden=false;setLink('підключення…','#30363d');
+ if(client)client.end(true);
+ client=mqtt.connect('wss://'+c.host+':'+(c.port||8084)+'/mqtt',{username:c.user,password:c.pass,clientId:'dash-'+Math.random().toString(16).slice(2,10),reconnectPeriod:5000,connectTimeout:15000,clean:true});
+ client.on('connect',()=>{setLink('онлайн','#238636');
+  client.subscribe([P+'/status',P+'/online',P+'/events',P+'/resp/#']);
+  watch();
+  request({type:'events',n:150}).then(t=>{events=JSON.parse(t);renderEvents();}).catch(()=>{});
+  loadHistory();});
+ client.on('reconnect',()=>setLink('перепідключення…','#9e6a03'));
+ client.on('offline',()=>setLink('офлайн','#b62324'));
+ client.on('error',e=>{if(/auth|Not authorized|Bad user/i.test(e.message)){client.end(true);showLogin('Невірний логін або пароль');}else setLink('помилка','#b62324');});
+ client.on('message',onMsg);
+}
+function setLink(t,c){$('link').textContent=t;$('link').style.background=c;}
+
+function onMsg(topic,buf){
+ const s=buf.toString();
+ if(topic===P+'/online'){boardOnline=s==='1';tick();return;}
+ if(topic===P+'/status'){try{render(JSON.parse(s));lastStatus=Date.now();}catch(e){}return;}
+ if(topic===P+'/events'){try{events.unshift(JSON.parse(s));renderEvents();}catch(e){}return;}
+ const m=topic.slice((P+'/resp/').length).split('/');const p=pending[m[0]];if(!p)return;
+ if(m[1]==='end')p.end=parseInt(s,10);else p.chunks[m[1]]=s;
+ if(p.end!=null&&Object.keys(p.chunks).length>=p.end){let all='';for(let i=0;i<p.end;i++)all+=p.chunks[i]||'';delete pending[m[0]];clearTimeout(p.timer);p.resolve(all);}
+}
+function request(obj,timeout=20000){
+ return new Promise((resolve,reject)=>{
+  if(!client||!client.connected)return reject('offline');
+  const id=Math.random().toString(36).slice(2,12);
+  pending[id]={chunks:{},end:null,resolve,reject,timer:setTimeout(()=>{delete pending[id];reject('timeout')},timeout)};
+  client.publish(P+'/req',JSON.stringify(Object.assign({id},obj)),{qos:1});
+ });
+}
+
+function render(s){
+ const off=!s.online;
+ $('banner').style.display=off?'block':'none';
+ if(off)$('banner').textContent='Плата не має зв\'язку з контролером генератора · '+(s.usb_diag||'');
+ const m=s.mode<0?['—','#30363d']:(MODES[s.mode]||['Режим '+s.mode,'#30363d']);
+ $('mode').textContent=m[0]+(s.timer_s>0?' · '+s.timer_s+' с':'');$('mode').style.background=m[1];
+ $('kw').textContent=f(s.total_kw,1);$('loadp').textContent=s.load_pct==null?'':f(s.load_pct,0)+' % від номіналу';
+ const mv=(s.mains_v_ln||[]).filter(x=>x!=null);const avg=mv.length?mv.reduce((a,b)=>a+b)/mv.length:null;
+ const on=avg!=null&&avg>150;$('mains').textContent=avg==null?'—':(on?'Є':'Немає');
+ $('mains').style.color=avg==null?'':(on?'var(--ok)':'var(--bad)');$('mainsv').textContent=on?f(avg,0)+' В':'';
+ $('hz').textContent=f(s.gen_hz,1);$('rpm').textContent=f(s.rpm);
+ $('oil').textContent=s.oil_kpa==null?'—':f(s.oil_kpa/100,1);$('tmp').textContent=f(s.coolant_c);$('bat').textContent=f(s.batt_v,1);
+ $('hrs').textContent=f(s.hours,0);$('st').textContent=s.starts>=0?'запусків: '+s.starts:'';
+ for(let i=0;i<3;i++){$('v'+i).textContent=f(s.gen_v_ln[i],1);$('i'+i).textContent=f(s.gen_i[i],1);$('p'+i).textContent=f(s.gen_kw[i],2);$('f'+i).textContent=f(s.pf[i],2);}
+ $('alerts').innerHTML='';(s.active||[]).forEach(a=>{const d=document.createElement('div');if(a.l<2)d.className='w';d.textContent=(a.l>1?'🚨 ':'⚠️ ')+a.m;$('alerts').appendChild(d);});
+}
+function tick(){
+ const age=lastStatus?Math.round((Date.now()-lastStatus)/1000):null;
+ if(boardOnline===false){$('banner').style.display='block';$('banner').textContent='Плата моніторингу офлайн (немає інтернету або живлення)';}
+ $('age').textContent=age==null?'даних ще немає':age<10?'оновлено щойно':'оновлено '+age+' с тому';
+}
+setInterval(tick,1000);
+// Tell the board someone is watching: it then sends data every 2 s instead of once a minute (saves traffic).
+function watch(){if(client&&client.connected&&!document.hidden)client.publish(P+'/req',JSON.stringify({id:'w'+Math.random().toString(36).slice(2,8),type:'watch'}));}
+setInterval(watch,30000);document.addEventListener('visibilitychange',watch);
+
+function renderEvents(){
+ const box=$('ev');box.innerHTML='';if(!events.length){box.innerHTML='<div>Подій ще немає</div>';return;}
+ events.slice(0,200).forEach(e=>{const d=document.createElement('div');const t=new Date(e.t*1000);
+  const s=document.createElement('span');s.className='t';s.textContent=e.t?pad(t.getDate())+'.'+pad(t.getMonth()+1)+' '+pad(t.getHours())+':'+pad(t.getMinutes()):'--';
+  d.appendChild(s);d.appendChild(document.createTextNode((e.l>1?'🚨 ':e.l>0?'⚠️ ':'')+e.m));box.appendChild(d);});
+}
+
+const ymd=d=>d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate());
+function selDay(){const d=$('day').valueAsDate||new Date();return new Date(d.getTime()+d.getTimezoneOffset()*60000);}
+function draw(rows){
+ const c=$('ch'),dpr=window.devicePixelRatio||1,W=c.clientWidth,H=c.clientHeight;c.width=W*dpr;c.height=H*dpr;
+ const g=c.getContext('2d');g.scale(dpr,dpr);g.clearRect(0,0,W,H);
+ const L=34,R=8,T=10,B=22,w=W-L-R,h=H-T-B,day=selDay();
+ const t0=new Date(day.getFullYear(),day.getMonth(),day.getDate()).getTime()/1000,X=t=>L+(t-t0)/86400*w;
+ let mx=10;rows.forEach(r=>mx=Math.max(mx,r[3]));mx=Math.ceil(mx/10)*10;const Y=v=>T+h-v/mx*h,bw=Math.max(1,w/1440);
+ g.fillStyle='rgba(248,81,73,.25)';rows.forEach(r=>{if((r[2]&1)&&!(r[2]&2))g.fillRect(X(r[0]),T,bw,h)});
+ g.fillStyle='rgba(63,185,80,.35)';rows.forEach(r=>{if(r[2]&4)g.fillRect(X(r[0]),T+h-6,bw,6)});
+ g.strokeStyle='#26303a';g.fillStyle='#8a98a5';g.font='11px system-ui';g.lineWidth=1;
+ for(let i=0;i<=4;i++){const v=mx*i/4,y=Y(v);g.beginPath();g.moveTo(L,y);g.lineTo(L+w,y);g.stroke();g.fillText(v,4,y+4);}
+ for(let hr=0;hr<=24;hr+=3)g.fillText(pad(hr),L+hr/24*w-6,H-6);
+ g.strokeStyle='#58a6ff';g.lineWidth=1.5;g.beginPath();let p=null;
+ rows.forEach(r=>{const x=X(r[0]),y=Y(r[3]);if(!p||r[0]-p>180)g.moveTo(x,y);else g.lineTo(x,y);p=r[0];});g.stroke();
+ if(!rows.length){g.fillStyle='#8a98a5';g.font='14px system-ui';g.fillText('Немає даних за цей день',L+10,T+h/2);}
+}
+function loadHistory(){request({type:'history',day:ymd(selDay())},30000).then(t=>draw(JSON.parse(t).rows||[])).catch(()=>draw([]));}
+$('day').valueAsDate=new Date(Date.now()-new Date().getTimezoneOffset()*60000);
+$('day').onchange=loadHistory;setInterval(()=>{if(client&&client.connected)loadHistory()},120000);
+
+async function cmd(c,q){
+ if(!confirm(q))return;
+ const pin=prompt('PIN керування:');if(!pin)return;
+ try{const r=JSON.parse(await request({type:'cmd',cmd:c,pin},15000));alert(r.ok?'Команду виконано':'Помилка: '+(r.err||''));}
+ catch(e){alert('Плата не відповіла ('+e+')');}
+}
+
+const saved=cfgLoad();if(saved&&saved.pass)start(saved);else showLogin();
+</script>
+</body></html>
