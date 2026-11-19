@@ -57,6 +57,7 @@ small{color:var(--mut)}a{color:var(--acc)}
  <a href="#svch">🔧 Сервісне обслуговування</a>
  <a href="http://generator.local/wifi" target="_blank" rel="noopener">⚙ Налаштування плати <small>(лише в домашній мережі)</small></a>
  <a href="http://192.168.4.1/wifi" target="_blank" rel="noopener">⚙ Налаштування плати <small>(біля генератора, Wi-Fi «Generator»)</small></a>
+ <a href="#ota">⬆ Оновити прошивку плати</a>
  <a href="#" id="logout2">↩ Вийти</a>
 </div></header>
 <div id="banner" class="banner" style="background:var(--bad)"></div>
@@ -100,6 +101,11 @@ small{color:var(--mut)}a{color:var(--acc)}
 <div id="svcbox" class="ev" style="max-height:none"><div>Завантаження…</div></div>
 <h2>Журнал подій</h2>
 <div class="ev" id="ev"></div>
+<h2 id="ota">Оновлення прошивки плати</h2>
+<div class="exp"><span>Файл <b>firmware.bin</b> надсилається на плату через інтернет. Плата перевіряє контрольну суму і лише тоді перезавантажується (≈1 хв, генератор при цьому працює як звичайно).</span>
+ <input type="file" id="otaf" accept=".bin" style="color:var(--fg)"><button onclick="otaUpload()">⬆ Оновити</button>
+ <div style="width:100%;height:8px;background:#26303a;border-radius:4px;overflow:hidden"><div id="otabar" style="height:100%;width:0;background:#238636"></div></div>
+ <small id="otast"></small></div>
 <p><small><a href="#" id="logout">Вийти</a> · <span id="age"></span></small></p>
 </main>
 </div>
@@ -127,7 +133,7 @@ function start(c){
  if(client)client.end(true);
  client=mqtt.connect('wss://'+c.host+':'+(c.port||8084)+'/mqtt',{username:c.user,password:c.pass,clientId:'dash-'+Math.random().toString(16).slice(2,10),reconnectPeriod:5000,connectTimeout:15000,clean:true});
  client.on('connect',()=>{setLink('онлайн','#238636');
-  client.subscribe([P+'/status',P+'/online',P+'/events',P+'/resp/#']);
+  client.subscribe([P+'/status',P+'/online',P+'/events',P+'/resp/#',P+'/ota_ack']);
   watch();
   request({type:'events',n:150}).then(t=>{events=JSON.parse(t);renderEvents();}).catch(()=>{});
   loadHistory();loadService();});
@@ -142,6 +148,7 @@ function onMsg(topic,buf){
  const s=buf.toString();
  if(topic===P+'/online'){boardOnline=s==='1';tick();return;}
  if(topic===P+'/status'){try{render(JSON.parse(s));lastStatus=Date.now();}catch(e){}return;}
+ if(topic===P+'/ota_ack'){if(otaWaiter)otaWaiter(s);return;}
  if(topic===P+'/events'){try{events.unshift(JSON.parse(s));renderEvents();}catch(e){}return;}
  const m=topic.slice((P+'/resp/').length).split('/');const p=pending[m[0]];if(!p)return;
  if(m[1]==='end')p.end=parseInt(s,10);else p.chunks[m[1]]=s;
@@ -291,6 +298,34 @@ async function exportCsv(days){
  a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='generator_'+f+'.csv';
  document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},2000);
  st.textContent='Готово: '+got+' рядків';
+}
+// ---- firmware update over the internet (MQTT) ----
+let otaWaiter=null;
+function otaAck(ms){return new Promise((res,rej)=>{const t=setTimeout(()=>{otaWaiter=null;rej('timeout')},ms);otaWaiter=s=>{clearTimeout(t);otaWaiter=null;res(s);};});}
+async function otaUpload(){
+ const st=$('otast'),bar=$('otabar'),f=$('otaf').files[0];
+ if(!f){st.textContent='Виберіть файл firmware.bin';return;}
+ if(!client||!client.connected){st.textContent='Немає з\'єднання з сервером';return;}
+ const buf=new Uint8Array(await f.arrayBuffer());
+ const sha=[...new Uint8Array(await crypto.subtle.digest('SHA-256',buf))].map(b=>b.toString(16).padStart(2,'0')).join('');
+ if(!confirm('Оновити прошивку плати файлом «'+f.name+'» ('+Math.round(buf.length/1024)+' КБ)?'))return;
+ const pin=prompt('PIN керування:');if(!pin)return;
+ st.textContent='Підготовка…';bar.style.width='0';
+ let r;try{r=JSON.parse(await request({type:'ota_begin',size:buf.length,sha256:sha,pin},30000));}catch(e){st.textContent='Плата не відповіла ('+e+')';return;}
+ if(!r.ok){st.textContent='Помилка: '+r.err;return;}
+ const CH=r.chunk||4096;let off=0,tries=0;
+ while(off<buf.length){
+  const n=Math.min(CH,buf.length-off),pkt=new Uint8Array(4+n);
+  pkt[0]=off&255;pkt[1]=(off>>8)&255;pkt[2]=(off>>16)&255;pkt[3]=(off>>>24)&255;pkt.set(buf.subarray(off,off+n),4);
+  const wait=otaAck(15000);client.publish(P+'/ota',pkt,{qos:0});
+  let a;try{a=await wait;}catch(e){if(++tries>5){st.textContent='Зв\'язок перервався — оновлення скасовано, прошивка не змінена';return;}continue;}
+  if(a.startsWith('ERR')){st.textContent='Помилка плати: '+a.slice(4);return;}
+  off=parseInt(a,10);tries=0;bar.style.width=(off/buf.length*100).toFixed(1)+'%';
+  st.textContent='Надіслано '+Math.round(off/1024)+' з '+Math.round(buf.length/1024)+' КБ';
+ }
+ st.textContent='Перевірка контрольної суми…';
+ try{r=JSON.parse(await request({type:'ota_end'},30000));}catch(e){st.textContent='Плата не відповіла на завершення ('+e+')';return;}
+ st.textContent=r.ok?'✅ Готово! Плата перезавантажується з новою прошивкою (≈30 с).':'Помилка: '+r.err;
 }
 async function cmd(c,q){
  if(!confirm(q))return;
